@@ -76,7 +76,7 @@ func (c *client) Logout() error {
 	c.lg.Debug("Logout")
 	if c.login.SetToIf(true, false) {
 		c.invoker.PreLogout()
-		c.streamChannels.Range(func(key, value any) bool {
+		c.streamChannels.Range(func(key, value interface{}) bool {
 			channel := value.(*stream)
 			err := channel.Leave()
 			c.streamChannels.Delete(key)
@@ -84,7 +84,7 @@ func (c *client) Logout() error {
 			return true
 		})
 
-		c.messageChannels.Range(func(key, value any) bool {
+		c.messageChannels.Range(func(key, value interface{}) bool {
 			channel := value.(string)
 			err := c.Unsubscribe(channel)
 			c.messageChannels.Delete(key)
