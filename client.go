@@ -34,9 +34,10 @@ type client struct {
 	messageChannels sync.Map
 
 	cc chan *rtm2.ConnectionEvent
+	tc chan string
 }
 
-func (c *client) Login(token string) (<-chan *rtm2.ConnectionEvent, error) {
+func (c *client) Login(token string) (<-chan *rtm2.ConnectionEvent, <-chan string, error) {
 	c.lg.Debug("Login")
 	if c.login.SetToIf(false, true) {
 		c.invoker.PreLogin()
@@ -62,14 +63,14 @@ func (c *client) Login(token string) (<-chan *rtm2.ConnectionEvent, error) {
 
 		_, errCode, err := c.invoker.OnReceived(req)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err = rtm2.ErrorFromCode(errCode); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		c.invoker.PostLogin()
 	}
-	return c.cc, nil
+	return c.cc, c.tc, nil
 }
 
 func (c *client) Logout() error {
@@ -234,7 +235,7 @@ func (c *client) Unsubscribe(channel string) error {
 }
 
 func (c *client) StreamChannel(channel string) rtm2.StreamChannel {
-	s := &stream{channel: channel, client: c, lg: c.lg.With(zap.String("channel", channel)), joined: abool.New(), topicEvents: make(chan *rtm2.TopicEvent, defaultChanSize), options: &rtm2.StreamOptions{}}
+	s := &stream{channel: channel, client: c, lg: c.lg.With(zap.String("channel", channel)), joined: abool.New(), topicEvents: make(chan *rtm2.TopicEvent, defaultChanSize), tc: make(chan string, defaultChanSize), options: &rtm2.StreamOptions{}}
 	if value, ok := c.streamChannels.LoadOrStore(channel, s); ok {
 		origin := value.(*stream)
 		return origin
@@ -247,7 +248,11 @@ func (e *MessageEvent) toRTM2Event() *rtm2.Message {
 }
 
 func (e *ConnectionStateChangeEvent) toRTM2Event() *rtm2.ConnectionEvent {
-	return &rtm2.ConnectionEvent{State: e.State, Reason: e.Reason}
+	return &rtm2.ConnectionEvent{State: e.State, Reason: e.Reason, Channel: e.Channel}
+}
+
+func (e *TokenPrivilegeExpire) toRTM2Event() string {
+	return e.Channel
 }
 
 func (c *client) OnEvent(event interface{}) {
@@ -280,6 +285,15 @@ func (c *client) OnEvent(event interface{}) {
 		c.lock.onEvent(e)
 	case *ConnectionStateChangeEvent:
 		c.cc <- e.toRTM2Event()
+	case *TokenPrivilegeExpire:
+		if e.Channel == "" {
+			c.tc <- e.toRTM2Event()
+		} else {
+			if value, ok := c.streamChannels.Load(e.Channel); ok {
+				s := value.(*stream)
+				s.tc <- e.toRTM2Event()
+			}
+		}
 	default:
 		c.lg.Warn("unknown event", zap.Any("event", event))
 	}
@@ -287,7 +301,7 @@ func (c *client) OnEvent(event interface{}) {
 
 func CreateRTMClient(ctx context.Context, config rtm2.RTMConfig, invoker Invoker) rtm2.RTMClient {
 	c, cancel := context.WithCancel(ctx)
-	cli := &client{ctx: c, cancel: cancel, lg: config.Logger.With(zap.String("appId", config.Appid), zap.String("userId", config.UserId)), params: make(map[string]interface{}), config: config, invoker: invoker, cc: make(chan *rtm2.ConnectionEvent, defaultChanSize)}
+	cli := &client{ctx: c, cancel: cancel, lg: config.Logger.With(zap.String("appId", config.Appid), zap.String("userId", config.UserId)), params: make(map[string]interface{}), config: config, invoker: invoker, cc: make(chan *rtm2.ConnectionEvent, defaultChanSize), tc: make(chan string, defaultChanSize)}
 	cli.lock = createLock(cli)
 	cli.storage = createStorage(cli)
 	cli.presence = createPresence(cli)

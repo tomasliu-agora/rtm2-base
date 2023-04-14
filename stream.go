@@ -13,6 +13,7 @@ type stream struct {
 	options *rtm2.StreamOptions
 
 	topicEvents     chan *rtm2.TopicEvent
+	tc              chan string
 	joined          *abool.AtomicBool
 	topics          sync.Map
 	topicSubscribes sync.Map
@@ -25,7 +26,7 @@ type streamSub struct {
 	userIds sync.Map
 }
 
-func (s *stream) Join(opts ...rtm2.StreamOption) (map[string][]string, <-chan *rtm2.TopicEvent, error) {
+func (s *stream) Join(opts ...rtm2.StreamOption) (map[string][]string, <-chan *rtm2.TopicEvent, <-chan string, error) {
 	s.lg.Debug("Join")
 	if s.joined.SetToIf(false, true) {
 		for _, opt := range opts {
@@ -44,16 +45,32 @@ func (s *stream) Join(opts ...rtm2.StreamOption) (map[string][]string, <-chan *r
 		}
 		_, errCode, err := s.client.invoker.OnReceived(req)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		if err = rtm2.ErrorFromCode(errCode); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		snapshotEvent := <-s.topicEvents
-		return snapshotEvent.Snapshot, s.topicEvents, nil
+		return snapshotEvent.Snapshot, s.topicEvents, s.tc, nil
 	} else {
-		return nil, nil, rtm2.ERR_ALREADY_JOIN_CHANNEL
+		return nil, nil, nil, rtm2.ERR_ALREADY_JOIN_CHANNEL
 	}
+}
+
+func (s *stream) RenewToken(token string) error {
+	s.lg.Debug("Renew Token")
+	req := &RenewTokenReq{
+		Token:   token,
+		Channel: s.channel,
+	}
+	_, errCode, err := s.client.invoker.OnReceived(req)
+	if err != nil {
+		return err
+	}
+	if err = rtm2.ErrorFromCode(errCode); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *stream) Leave() error {
