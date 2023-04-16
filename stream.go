@@ -198,10 +198,10 @@ func (s *stream) SubscribeTopic(topic string, userIds []string) (<-chan *rtm2.Me
 	}
 	users := make([]string, 0)
 	if value, ok := s.topicSubscribes.LoadOrStore(topic, sub); ok {
-		ssub := value.(*streamSub)
+		sub = value.(*streamSub)
 		if len(userIds) > 0 {
 			for _, userId := range userIds {
-				if _, ok := ssub.userIds.LoadOrStore(userId, true); !ok {
+				if _, ok := sub.userIds.LoadOrStore(userId, true); !ok {
 					users = append(users, userId)
 				}
 			}
