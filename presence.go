@@ -85,6 +85,16 @@ func (p *presence) WhereNow(userId string) ([]*rtm2.ChannelInfo, error) {
 	return infos, nil
 }
 
+func (p *presence) GetOnlineUsers(channel string, channelType rtm2.ChannelType, opts ...rtm2.PresenceOption) (map[string]*rtm2.UserState, string, error) {
+	p.lg.Debug("GetOnlineUsers, Call WhoNow")
+	return p.WhoNow(channel, channelType, opts...)
+}
+
+func (p *presence) GetUserChannels(userId string) ([]*rtm2.ChannelInfo, error) {
+	p.lg.Debug("GetUserChannels, Call Where Now")
+	return p.WhereNow(userId)
+}
+
 func (p *presence) SetState(channel string, channelType rtm2.ChannelType, data map[string]string) error {
 	p.lg.Debug("SetState")
 	req := &PresenceSetStateReq{Channel: channel, ChannelType: int32(channelType)}
@@ -187,7 +197,7 @@ func (p *presence) onEvent(event *PresenceEvent) {
 			p.lg.Debug("put to channel", zap.Any("event", event))
 		default:
 			if e.Type != rtm2.PresenceTypeSnapshot {
-				p.lg.Warn("not snapshot for the first event")
+				p.lg.Warn("not snapshot for the first event", zap.Any("type", e.Type))
 				return
 			}
 			for userId, state := range e.States {

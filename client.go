@@ -35,9 +35,10 @@ type client struct {
 
 	cc chan *rtm2.ConnectionEvent
 	tc chan string
+	mc chan *rtm2.Message
 }
 
-func (c *client) Login(token string) (<-chan *rtm2.ConnectionEvent, <-chan string, error) {
+func (c *client) Login(token string) (<-chan *rtm2.ConnectionEvent, <-chan string, <-chan *rtm2.Message, error) {
 	c.lg.Debug("Login")
 	if c.login.SetToIf(false, true) {
 		c.invoker.PreLogin()
@@ -63,14 +64,14 @@ func (c *client) Login(token string) (<-chan *rtm2.ConnectionEvent, <-chan strin
 
 		_, errCode, err := c.invoker.OnReceived(req)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		if err = rtm2.ErrorFromCode(errCode); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		c.invoker.PostLogin()
 	}
-	return c.cc, c.tc, nil
+	return c.cc, c.tc, c.mc, nil
 }
 
 func (c *client) Logout() error {
@@ -86,7 +87,7 @@ func (c *client) Logout() error {
 		})
 
 		c.messageChannels.Range(func(key, value interface{}) bool {
-			channel := value.(string)
+			channel := key.(string)
 			err := c.Unsubscribe(channel)
 			c.messageChannels.Delete(key)
 			c.lg.Debug("closing remaining message channel", zap.String("channel", key.(string)), zap.Error(err))
@@ -158,11 +159,13 @@ func (c *client) Presence() rtm2.Presence {
 
 func (c *client) Publish(channel string, message []byte, opts ...rtm2.MessageOption) error {
 	c.lg.Debug("Publish")
-	options := &rtm2.MessageOptions{}
+	options := &rtm2.MessageOptions{
+		ChannelType: rtm2.ChannelTypeMessage,
+	}
 	for _, opt := range opts {
 		opt(options)
 	}
-	req := &MessagePublishReq{Channel: channel, Type: int32(options.Type), Message: message}
+	req := &MessagePublishReq{Channel: channel, Type: int32(options.Type), Message: message, CustomType: options.CustomType, ChannelType: int32(options.ChannelType)}
 	_, errCode, err := c.invoker.OnReceived(req)
 	if err != nil {
 		return err
@@ -217,6 +220,16 @@ func (c *client) Unsubscribe(channel string) error {
 	c.lg.Debug("Unsubscribe")
 	if value, ok := c.messageChannels.LoadAndDelete(channel); ok {
 		c.lg.Info("Unsubscribe", zap.String("channel", channel))
+		req := &MessageUnsubReq{
+			Channel: channel,
+		}
+		_, errCode, err := c.invoker.OnReceived(req)
+		if err != nil {
+			return err
+		}
+		if err = rtm2.ErrorFromCode(errCode); err != nil {
+			return err
+		}
 		sub := value.(*messageSub)
 		if sub.options.Metadata {
 			c.storage.unsubscribe(c.storage.unifyChannelKey(channel, rtm2.ChannelTypeMessage))
@@ -230,7 +243,7 @@ func (c *client) Unsubscribe(channel string) error {
 		close(sub.mc)
 		return nil
 	} else {
-		return rtm2.ERR_NOT_SUBSCRIBED
+		return rtm2.ERROR_CHANNEL_NOT_SUBSCRIBED
 	}
 }
 
@@ -244,7 +257,7 @@ func (c *client) StreamChannel(channel string) rtm2.StreamChannel {
 }
 
 func (e *MessageEvent) toRTM2Event() *rtm2.Message {
-	return &rtm2.Message{UserId: e.Publisher, Type: rtm2.MessageType(e.Type), Message: e.Message}
+	return &rtm2.Message{UserId: e.Publisher, Type: rtm2.MessageType(e.Type), Message: e.Message, CustomType: e.CustomType}
 }
 
 func (e *ConnectionStateChangeEvent) toRTM2Event() *rtm2.ConnectionEvent {
@@ -270,10 +283,15 @@ func (c *client) OnEvent(event interface{}) {
 			s.OnMessage(e)
 		}
 	case *MessageEvent:
-		channel := e.Channel
-		if value, ok := c.messageChannels.Load(channel); ok {
-			s := value.(*messageSub)
-			s.mc <- e.toRTM2Event()
+		switch e.ChannelType {
+		case int32(rtm2.ChannelTypeMessage):
+			channel := e.Channel
+			if value, ok := c.messageChannels.Load(channel); ok {
+				s := value.(*messageSub)
+				s.mc <- e.toRTM2Event()
+			}
+		case int32(rtm2.ChannelTypeUser):
+			c.mc <- e.toRTM2Event()
 		}
 	case *StorageChannelEvent:
 		c.storage.onChannelEvent(e)
@@ -301,7 +319,7 @@ func (c *client) OnEvent(event interface{}) {
 
 func CreateRTMClient(ctx context.Context, config rtm2.RTMConfig, invoker Invoker) rtm2.RTMClient {
 	c, cancel := context.WithCancel(ctx)
-	cli := &client{ctx: c, cancel: cancel, lg: config.Logger.With(zap.String("appId", config.Appid), zap.String("userId", config.UserId)), params: make(map[string]interface{}), config: config, invoker: invoker, cc: make(chan *rtm2.ConnectionEvent, defaultChanSize), tc: make(chan string, defaultChanSize)}
+	cli := &client{ctx: c, cancel: cancel, lg: config.Logger.With(zap.String("appId", config.Appid), zap.String("userId", config.UserId)), params: make(map[string]interface{}), config: config, invoker: invoker, cc: make(chan *rtm2.ConnectionEvent, defaultChanSize), tc: make(chan string, defaultChanSize), mc: make(chan *rtm2.Message, defaultChanSize)}
 	cli.lock = createLock(cli)
 	cli.storage = createStorage(cli)
 	cli.presence = createPresence(cli)
