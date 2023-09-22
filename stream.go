@@ -53,7 +53,7 @@ func (s *stream) Join(opts ...rtm2.StreamOption) (map[string][]string, <-chan *r
 		snapshotEvent := <-s.topicEvents
 		return snapshotEvent.Snapshot, s.topicEvents, s.tc, nil
 	} else {
-		return nil, nil, nil, rtm2.ERR_ALREADY_JOIN_CHANNEL
+		return nil, nil, nil, rtm2.ERROR_CHANNEL_JOIN_FAILED
 	}
 }
 
@@ -99,7 +99,7 @@ func (s *stream) Leave() error {
 		s.client.streamChannels.Delete(s.channel)
 		return nil
 	} else {
-		return rtm2.ERR_NOT_JOIN_CHANNEL
+		return rtm2.ERROR_CHANNEL_NOT_JOINED
 	}
 }
 
@@ -110,7 +110,7 @@ func (s *stream) ChannelName() string {
 func (s *stream) JoinTopic(topic string, opts ...rtm2.StreamOption) error {
 	s.lg.Debug("JoinTopic")
 	if s.joined.IsNotSet() {
-		return rtm2.ERR_NOT_JOIN_CHANNEL
+		return rtm2.ERROR_CHANNEL_NOT_JOINED
 	}
 	options := &rtm2.StreamOptions{}
 	for _, opt := range opts {
@@ -119,7 +119,7 @@ func (s *stream) JoinTopic(topic string, opts ...rtm2.StreamOption) error {
 
 	if _, ok := s.topics.LoadOrStore(topic, true); ok {
 		s.lg.Error("already joined topic", zap.String("topic", topic))
-		return rtm2.ERR_TOPIC_ALREADY_JOINED
+		return rtm2.ERROR_CHANNEL_JOIN_TOPIC_FAILED
 	}
 	// RTE join topic
 	req := &StreamJoinTopicReq{Channel: s.channel, Topic: topic, Qos: int32(options.QOS), Priority: int32(options.Priority), SyncMedia: options.SyncMedia, Meta: options.Meta}
@@ -138,7 +138,7 @@ func (s *stream) JoinTopic(topic string, opts ...rtm2.StreamOption) error {
 func (s *stream) PublishTopic(topic string, message []byte, opts ...rtm2.StreamOption) error {
 	s.lg.Debug("PublishTopic")
 	if s.joined.IsNotSet() {
-		return rtm2.ERR_NOT_JOIN_CHANNEL
+		return rtm2.ERROR_CHANNEL_NOT_JOINED
 	}
 	if _, ok := s.topics.Load(topic); ok {
 		options := &rtm2.StreamOptions{}
@@ -146,7 +146,7 @@ func (s *stream) PublishTopic(topic string, message []byte, opts ...rtm2.StreamO
 			opt(options)
 		}
 		// RTE publish topic
-		req := &StreamMessageReq{Channel: s.channel, Topic: topic, Message: message, Type: int32(options.Type), SendTs: int64(options.SendTs)}
+		req := &StreamMessageReq{Channel: s.channel, Topic: topic, Message: message, Type: int32(options.Type), SendTs: int64(options.SendTs), CustomType: options.CustomType}
 		_, errCode, err := s.client.invoker.OnReceived(req)
 		if err != nil {
 			s.topics.Delete(topic)
@@ -159,14 +159,14 @@ func (s *stream) PublishTopic(topic string, message []byte, opts ...rtm2.StreamO
 		return nil
 	} else {
 		s.lg.Error("topic not joined", zap.String("topic", topic))
-		return rtm2.ERR_PUBLISH_TOPIC_MESSAGE_FAILED
+		return rtm2.ERROR_CHANNEL_PUBLISH_MESSAGE_FAILED
 	}
 }
 
 func (s *stream) LeaveTopic(topic string) error {
 	s.lg.Debug("LeaveTopic")
 	if s.joined.IsNotSet() {
-		return rtm2.ERR_NOT_JOIN_CHANNEL
+		return rtm2.ERROR_CHANNEL_NOT_JOINED
 	}
 	if _, ok := s.topics.LoadAndDelete(topic); ok {
 		// RTE leave topic
@@ -190,7 +190,7 @@ func (s *stream) LeaveTopic(topic string) error {
 func (s *stream) SubscribeTopic(topic string, userIds []string) (<-chan *rtm2.Message, error) {
 	s.lg.Debug("SubscribeTopic")
 	if s.joined.IsNotSet() {
-		return nil, rtm2.ERR_NOT_JOIN_CHANNEL
+		return nil, rtm2.ERROR_CHANNEL_NOT_JOINED
 	}
 	sub := &streamSub{mc: make(chan *rtm2.Message, defaultChanSize)}
 	for _, userId := range userIds {
@@ -234,7 +234,7 @@ func (s *stream) SubscribeTopic(topic string, userIds []string) (<-chan *rtm2.Me
 func (s *stream) UnsubscribeTopic(topic string, userIds []string) error {
 	s.lg.Debug("UnsubscribeTopic")
 	if s.joined.IsNotSet() {
-		return rtm2.ERR_NOT_JOIN_CHANNEL
+		return rtm2.ERROR_CHANNEL_NOT_JOINED
 	}
 	users := make([]string, 0)
 	if len(userIds) > 0 {
@@ -305,11 +305,11 @@ func (s *stream) GetSubscribedUsers(topic string) ([]string, error) {
 		subResp := resp.(*StreamSubListResp)
 		return subResp.UserIds, nil
 	}
-	return nil, rtm2.ERR_NOT_SUBSCRIBED
+	return nil, rtm2.ERROR_CHANNEL_TOPIC_NOT_SUBSCRIBED
 }
 
 func (s *stream) OnMessage(msg *StreamMessageEvent) {
-	m := &rtm2.Message{UserId: msg.Publisher, Type: rtm2.MessageType(msg.Type), Message: msg.Message}
+	m := &rtm2.Message{UserId: msg.Publisher, Type: rtm2.MessageType(msg.Type), Message: msg.Message, CustomType: msg.CustomType}
 	if value, ok := s.topicSubscribes.Load(msg.Topic); ok {
 		ssub := value.(*streamSub)
 		if _, exists := ssub.userIds.Load(msg.Publisher); exists {
