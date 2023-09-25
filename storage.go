@@ -54,9 +54,20 @@ func (s *storage) unifyUserKey(userId string) string {
 
 func (s *storage) GetChannelMetadataChan(channel string, channelType rtm2.ChannelType) (map[string]*rtm2.MetadataItem, <-chan *rtm2.StorageEvent, error) {
 	s.lg.Debug("GetChannelMetadataChan")
-	if _, ok := s.client.streamChannels.Load(channel); !ok {
-		return nil, nil, errors.New("not joined")
+	switch channelType {
+	case rtm2.ChannelTypeStream:
+		if _, ok := s.client.streamChannels.Load(channel); !ok {
+			return nil, nil, errors.New("not joined")
+		}
+	case rtm2.ChannelTypeMessage:
+		if _, ok := s.client.messageChannels.Load(channel); !ok {
+			return nil, nil, errors.New("not joined")
+		}
+	default:
+		s.lg.Warn("unknown channel type", zap.Int32("channelType", int32(channelType)))
+		return nil, nil, errors.New("unknown channel type")
 	}
+
 	key := s.unifyChannelKey(channel, channelType)
 	if value, ok := s.subscribes.Load(key); !ok {
 		s.lg.Warn("not subscribed", zap.String("key", key))
@@ -290,6 +301,7 @@ func (s *storage) unsubscribe(key string) {
 func (e *StorageChannelEvent) toRTM2Event() *rtm2.StorageEvent {
 	rst := &rtm2.StorageEvent{Items: make(map[string]*rtm2.MetadataItem)}
 	rst.MajorRevision = e.MajorRev
+	rst.EventType = rtm2.StorageEventType(e.EventType)
 	for _, item := range e.Items {
 		rst.Items[item.Key] = &rtm2.MetadataItem{Key: item.Key, Value: item.Value, Author: item.Author, Revision: item.Rev, UpdateTs: item.UpdateTs}
 	}
@@ -299,6 +311,7 @@ func (e *StorageChannelEvent) toRTM2Event() *rtm2.StorageEvent {
 func (e *StorageUserEvent) toRTM2Event() *rtm2.StorageEvent {
 	rst := &rtm2.StorageEvent{Items: make(map[string]*rtm2.MetadataItem)}
 	rst.MajorRevision = e.MajorRev
+	rst.EventType = rtm2.StorageEventType(e.EventType)
 	for _, item := range e.Items {
 		rst.Items[item.Key] = &rtm2.MetadataItem{Key: item.Key, Value: item.Value, Author: item.Author, Revision: item.Rev, UpdateTs: item.UpdateTs}
 	}

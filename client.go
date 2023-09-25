@@ -86,7 +86,7 @@ func (c *client) Logout() error {
 		})
 
 		c.messageChannels.Range(func(key, value interface{}) bool {
-			channel := value.(string)
+			channel := key.(string)
 			err := c.Unsubscribe(channel)
 			c.messageChannels.Delete(key)
 			c.lg.Debug("closing remaining message channel", zap.String("channel", key.(string)), zap.Error(err))
@@ -162,7 +162,7 @@ func (c *client) Publish(channel string, message []byte, opts ...rtm2.MessageOpt
 	for _, opt := range opts {
 		opt(options)
 	}
-	req := &MessagePublishReq{Channel: channel, Type: int32(options.Type), Message: message}
+	req := &MessagePublishReq{Channel: channel, Type: int32(options.Type), Message: message, CustomType: options.CustomType}
 	_, errCode, err := c.invoker.OnReceived(req)
 	if err != nil {
 		return err
@@ -217,6 +217,16 @@ func (c *client) Unsubscribe(channel string) error {
 	c.lg.Debug("Unsubscribe")
 	if value, ok := c.messageChannels.LoadAndDelete(channel); ok {
 		c.lg.Info("Unsubscribe", zap.String("channel", channel))
+		req := &MessageUnsubReq{
+			Channel: channel,
+		}
+		_, errCode, err := c.invoker.OnReceived(req)
+		if err != nil {
+			return err
+		}
+		if err = rtm2.ErrorFromCode(errCode); err != nil {
+			return err
+		}
 		sub := value.(*messageSub)
 		if sub.options.Metadata {
 			c.storage.unsubscribe(c.storage.unifyChannelKey(channel, rtm2.ChannelTypeMessage))
@@ -230,7 +240,7 @@ func (c *client) Unsubscribe(channel string) error {
 		close(sub.mc)
 		return nil
 	} else {
-		return rtm2.ERR_NOT_SUBSCRIBED
+		return rtm2.ERROR_CHANNEL_NOT_SUBSCRIBED
 	}
 }
 
@@ -244,7 +254,7 @@ func (c *client) StreamChannel(channel string) rtm2.StreamChannel {
 }
 
 func (e *MessageEvent) toRTM2Event() *rtm2.Message {
-	return &rtm2.Message{UserId: e.Publisher, Type: rtm2.MessageType(e.Type), Message: e.Message}
+	return &rtm2.Message{UserId: e.Publisher, Type: rtm2.MessageType(e.Type), Message: e.Message, CustomType: e.CustomType}
 }
 
 func (e *ConnectionStateChangeEvent) toRTM2Event() *rtm2.ConnectionEvent {
