@@ -3,11 +3,12 @@ package base
 import (
 	"context"
 	"encoding/json"
-	"github.com/tevino/abool/v2"
-	"github.com/tomasliu-agora/rtm2"
-	"go.uber.org/zap"
 	"strings"
 	"sync"
+
+	"github.com/tevino/abool/v2"
+	"github.com/tomasliu-agora/rtm2/v2"
+	"go.uber.org/zap"
 )
 
 type messageSub struct {

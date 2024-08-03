@@ -5,7 +5,7 @@ go 1.17
 require (
 	github.com/golang/protobuf v1.5.3
 	github.com/tevino/abool/v2 v2.1.0
-	github.com/tomasliu-agora/rtm2 v0.0.2-0.20230922094228-2002e6a77cce
+	github.com/tomasliu-agora/rtm2/v2 v2.1.6-p2p
 	go.uber.org/zap v1.24.0
 )
 

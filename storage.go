@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/tomasliu-agora/rtm2"
-	"go.uber.org/zap"
 	"sync"
+
+	"github.com/tomasliu-agora/rtm2/v2"
+	"go.uber.org/zap"
 )
 
 type storageSub struct {

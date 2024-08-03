@@ -1,10 +1,11 @@
 package base
 
 import (
-	"github.com/tevino/abool/v2"
-	"github.com/tomasliu-agora/rtm2"
-	"go.uber.org/zap"
 	"sync"
+
+	"github.com/tevino/abool/v2"
+	"github.com/tomasliu-agora/rtm2/v2"
+	"go.uber.org/zap"
 )
 
 type stream struct {
