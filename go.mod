@@ -1,4 +1,4 @@
-module github.com/tomasliu-agora/rtm2-base
+module github.com/tomasliu-agora/rtm2-base/v2
 
 go 1.17
 
